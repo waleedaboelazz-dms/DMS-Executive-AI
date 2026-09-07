@@ -1,0 +1,427 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "mysql"
+  url = env("DATABASE_URL")
+}
+model User {
+  id String @id
+  memberships Membership[]
+  createdAt DateTime @default(now())
+  @@map("users")
+}
+model Organization {
+  id String @id @default(cuid())
+  name String
+  memberships Membership[]
+  businesses Business[]
+  createdAt DateTime @default(now())
+  @@map("organizations")
+}
+model Membership {
+  userId String
+  organizationId String
+  role String @default("owner")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@id([userId, organizationId])
+  @@map("memberships")
+}
+model Business {
+  id String @id @default(cuid())
+  organizationId String
+  name String
+  currency String @default("SAR")
+  timezone String @default("Asia/Riyadh")
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  metrics Metric[]
+  integrations Integration[]
+  reports Report[]
+  conversations AiConversation[]
+  dataSources DataSource[]
+  metricSnapshots MetricSnapshot[]
+  events Event[]
+  alerts Alert[]
+  recommendations Recommendation[]
+  aiInsights AiInsight[]
+  aiMemories AiMemory[]
+  tasks Task[]
+  projects Project[]
+  clients Client[]
+  approvals Approval[]
+  automationRules AutomationRule[]
+  auditLogs AuditLog[]
+  products Product[]
+  customers Customer[]
+  createdAt DateTime @default(now())
+  @@index([organizationId])
+  @@map("businesses")
+}
+model Metric {
+  id String @id @default(cuid())
+  businessId String
+  date DateTime @db.Date
+  revenue Decimal @db.Decimal(16, 2)
+  adSpend Decimal @db.Decimal(16, 2)
+  cogs Decimal @db.Decimal(16, 2)
+  expenses Decimal @db.Decimal(16, 2)
+  orders Int
+  leads Int
+  sessions Int
+  source String @default("manual")
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
+  @@unique([businessId, date])
+  @@map("metrics")
+}
+model Integration {
+  id String @id @default(cuid())
+  businessId String
+  provider String
+  status String @default("disconnected")
+  lastSync DateTime?
+  cursor String?
+  version Int @default(1)
+  accountId String?
+  autoSync Boolean @default(false)
+  syncOwner String?
+  syncLeaseUntil DateTime?
+  lastError String?
+  syncRuns SyncRun[]
+  sourceMetrics SourceMetric[]
+  products Product[]
+  customers Customer[]
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  credential IntegrationCredential?
+  @@unique([businessId, provider])
+  @@map("integrations")
+}
+model Product {
+  id String @id @default(cuid())
+  businessId String
+  integrationId String
+  externalId String
+  name String
+  sku String?
+  currency String
+  price Decimal @db.Decimal(16, 2)
+  salePrice Decimal? @db.Decimal(16, 2)
+  inventoryQuantity Int?
+  status String
+  lastSeenAt DateTime @default(now())
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([integrationId, externalId])
+  @@index([businessId, updatedAt])
+  @@map("products")
+}
+model Customer {
+  id String @id @default(cuid())
+  businessId String
+  integrationId String
+  externalId String
+  name String
+  email String?
+  phone String?
+  currency String
+  totalOrders Int @default(0)
+  totalSpent Decimal @db.Decimal(16, 2) @default(0)
+  lastSeenAt DateTime @default(now())
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([integrationId, externalId])
+  @@index([businessId, updatedAt])
+  @@map("customers")
+}
+model IntegrationCredential {
+  integrationId String @id
+  encryptedValue String @db.Text
+  keyVersion Int @default(1)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
+  @@map("integration_credentials")
+}
+model SyncRun {
+  id String @id @default(cuid())
+  integrationId String
+  version Int
+  requestedBy String
+  from DateTime @db.Date
+  to DateTime @db.Date
+  status String @default("queued")
+  attempts Int @default(0)
+  records Int @default(0)
+  errorCode String?
+  startedAt DateTime?
+  finishedAt DateTime?
+  createdAt DateTime @default(now())
+  integration Integration @relation(fields:[integrationId],references:[id],onDelete:Cascade)
+  @@index([integrationId,createdAt])
+  @@index([status,createdAt])
+  @@map("sync_runs")
+}
+model SourceMetric {
+  id String @id @default(cuid())
+  integrationId String
+  version Int
+  date DateTime @db.Date
+  currency String
+  values Json
+  notes Json
+  timezone String
+  syncedAt DateTime @default(now())
+  integration Integration @relation(fields:[integrationId],references:[id],onDelete:Cascade)
+  @@unique([integrationId,version,date,currency])
+  @@map("source_metrics")
+}
+model OAuthAttempt {
+  stateHash String @id
+  userId String
+  organizationId String
+  businessId String
+  provider String
+  accountId String?
+  cookieHash String
+  verifierEncrypted String? @db.Text
+  expiresAt DateTime
+  consumedAt DateTime?
+  // Set only between a consumed code exchange and account-selection finalization (see accounts.ts/select-account route).
+  pendingCredentialsEncrypted String? @db.Text
+  pendingAccounts Json?
+  @@index([expiresAt])
+  @@map("oauth_attempts")
+}
+model Report {
+  id String @id @default(cuid())
+  businessId String
+  title String
+  content String @db.Text
+  kind String @default("deterministic")
+  context Json
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@index([businessId, createdAt])
+  @@map("reports")
+}
+model AiConversation {
+  id String @id @default(cuid())
+  businessId String
+  userId String
+  question String @db.Text
+  answer String @db.Text
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@index([businessId, userId, createdAt])
+  @@map("ai_conversations")
+}
+model AuditLog {
+  id String @id @default(cuid())
+  businessId String
+  userId String
+  action String
+  reason String
+  result String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@index([businessId, createdAt])
+  @@map("audit_logs")
+}
+model RateLimit {
+  key String @id
+  count Int @default(1)
+  expiresAt DateTime
+  @@index([expiresAt])
+  @@map("rate_limits")
+}
+model DataSource {
+  id String @id @default(cuid())
+  businessId String
+  provider String
+  externalId String
+  rawPayload Json
+  syncedAt DateTime?
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("data_sources")
+}
+
+model MetricSnapshot {
+  id String @id @default(cuid())
+  businessId String
+  periodStart DateTime
+  periodEnd DateTime
+  values Json
+  version Int @default(1)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("metric_snapshots")
+}
+
+model Event {
+  id String @id @default(cuid())
+  businessId String
+  source String
+  externalId String
+  type String
+  payload Json
+  occurredAt DateTime
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@unique([businessId, source, externalId])
+  @@map("events")
+}
+
+model Alert {
+  id String @id @default(cuid())
+  businessId String
+  severity String
+  title String
+  evidence Json
+  resolvedAt DateTime?
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("alerts")
+}
+
+model Recommendation {
+  id String @id @default(cuid())
+  businessId String
+  title String
+  rationale String @db.Text
+  evidence Json
+  proposedAction Json?
+  status String @default("proposed")
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("recommendations")
+}
+
+model AiInsight {
+  id String @id @default(cuid())
+  businessId String
+  agent String
+  content String @db.Text
+  evidence Json
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("ai_insights")
+}
+
+model AiMemory {
+  id String @id @default(cuid())
+  businessId String
+  category String
+  content String @db.Text
+  sourceId String?
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("ai_memories")
+}
+
+model Task {
+  id String @id @default(cuid())
+  businessId String
+  title String
+  status String @default("open")
+  priority String @default("normal")
+  dueAt DateTime?
+  assigneeId String?
+  sourceKey String? @unique
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("tasks")
+}
+
+model Project {
+  id String @id @default(cuid())
+  businessId String
+  name String
+  status String @default("planned")
+  budget Decimal? @db.Decimal(16, 2)
+  dueAt DateTime?
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("projects")
+}
+
+model Client {
+  id String @id @default(cuid())
+  businessId String
+  name String
+  details Json
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("clients")
+}
+
+model Approval {
+  id String @id @default(cuid())
+  businessId String
+  actionType String
+  immutablePayload Json
+  payloadHash String
+  status String @default("pending")
+  requestedBy String
+  decidedBy String?
+  decidedAt DateTime?
+  executionKey String? @unique
+  executedAt DateTime?
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("approvals")
+}
+
+model AutomationRule {
+  id String @id @default(cuid())
+  businessId String
+  name String
+  enabled Boolean @default(false)
+  condition Json
+  action Json
+  lastEvaluatedAt DateTime?
+  evaluations AutomationEvaluation[]
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, createdAt])
+  @@map("automation_rules")
+}
+
+model AutomationEvaluation {
+  id String @id @default(cuid())
+  ruleId String
+  periodEnd DateTime @db.Date
+  matched Boolean
+  evidence Json
+  rule AutomationRule @relation(fields:[ruleId],references:[id],onDelete:Cascade)
+  createdAt DateTime @default(now())
+  @@unique([ruleId,periodEnd])
+  @@map("automation_evaluations")
+}

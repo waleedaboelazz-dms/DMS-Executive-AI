@@ -1,0 +1,7 @@
+import { Queue } from 'bullmq';
+import type { SyncQueue } from '@/modules/integrations/service';
+import { HttpError } from '@/lib/http';
+export function redisConnection(){const raw=process.env.REDIS_URL;if(!raw)throw new HttpError(503,'Configure REDIS_URL and start the sync worker');const url=new URL(raw);if(!['redis:','rediss:'].includes(url.protocol))throw new Error('Invalid Redis configuration');return{host:url.hostname,port:Number(url.port||6379),username:url.username?decodeURIComponent(url.username):undefined,password:url.password?decodeURIComponent(url.password):undefined,db:Number(url.pathname.slice(1)||0),...(url.protocol==='rediss:'?{tls:{}}:{}),maxRetriesPerRequest:1,connectTimeout:3000,enableOfflineQueue:false};}
+let queue:Queue|undefined;
+export function getSyncQueue(){if(!queue){queue=new Queue('dms-integrations',{connection:redisConnection(),defaultJobOptions:{attempts:3,backoff:{type:'exponential',delay:15000},removeOnComplete:{age:86400,count:1000},removeOnFail:{age:604800,count:1000}}});queue.on('error',()=>console.error(JSON.stringify({event:'sync_queue_unavailable'})));}return queue;}
+export const syncQueue:SyncQueue={async enqueue(runId){try{const queue=getSyncQueue(),existing=await queue.getJob(runId);if(existing&&(await existing.getState())==='failed'){await existing.retry();return;}await queue.add('sync',{runId},{jobId:runId});}catch{throw new HttpError(503,'Sync request saved. The worker will recover it when Redis is available.');}}};

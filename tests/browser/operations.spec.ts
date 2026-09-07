@@ -1,0 +1,33 @@
+import {test,expect} from '@playwright/test';
+test('automation evidence, approval review, task persistence and Arabic mobile',async({page})=>{
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/');await page.getByRole('button',{name:'Automation',exact:true}).click();
+  await page.getByLabel('Rule name',{exact:true}).fill('Review operating performance');
+  await page.getByLabel('Threshold',{exact:true}).fill('1000');
+  await page.getByRole('combobox',{name:'Action',exact:true}).selectOption('task_approval');
+  await page.getByRole('button',{name:'Save disabled rule'}).click();
+  await page.getByRole('button',{name:'Enable',exact:true}).click();
+  await page.getByRole('button',{name:'Evaluate now',exact:true}).click();
+  await page.getByRole('tab',{name:'Approvals',exact:true}).click();
+  await expect(page.locator('.ops-row')).toContainText('Review operating performance');
+  await page.getByRole('button',{name:'Approve',exact:true}).click();
+  await page.getByLabel('Decision reason',{exact:true}).fill('Reviewed the underlying figures');
+  await page.getByRole('button',{name:'Confirm approval and create task'}).click();
+  await expect(page.locator('.ops-row')).toContainText('Executed');
+  await page.getByRole('tab',{name:'Tasks',exact:true}).click();
+  await page.getByLabel('Task status: Review operating performance',{exact:true}).selectOption('done');
+  await page.reload();await page.getByRole('button',{name:'Tasks',exact:true}).click();
+  await expect(page.getByLabel('Task status: Review operating performance',{exact:true})).toHaveValue('done');
+  await page.getByLabel('Business',{exact:true}).selectOption('demo-dms');
+  await expect(page.getByText('No tasks yet. Add one or convert a saved alert.')).toBeVisible();
+  await page.getByRole('button',{name:'العربية',exact:true}).click();
+  await page.setViewportSize({width:390,height:844});
+  await expect(page.getByRole('heading',{name:'إنشاء مهمة',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'test-results/phase3-arabic-mobile.png',fullPage:true,animations:'disabled'});
+  expect(errors).toEqual([]);
+});
+test('operations APIs reject unauthenticated access',async({request})=>{
+  expect((await request.get('/api/operations?businessId=other')).status()).toBe(401);
+  expect((await request.post('/api/operations',{data:{businessId:'other',command:{operation:'evaluate'}}})).status()).toBe(401);
+});
