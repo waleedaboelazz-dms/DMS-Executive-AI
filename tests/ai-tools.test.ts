@@ -100,24 +100,26 @@ test('executeTool ignores any businessId/userId the model tries to inject and st
   assert.equal(result.businessName, 'iNatural');
 });
 
-test('ExecutiveAgent.chat drives tool-calling providers through executeTool instead of stuffing raw context', async () => {
+test('ExecutiveAgent.chat drives tool-calling providers through executeTool and surfaces which tools were used', async () => {
   const calledTools: string[] = [];
   const agent = new ExecutiveAgent({
     generate: async () => { throw new Error('should not fall back to generate() when converse is available'); },
-    converse: async input => { calledTools.push(...input.tools.map(t => t.name)); await input.call('getRevenueMetrics', { range: 'last7' }); return 'ok'; },
+    converse: async input => { calledTools.push(...input.tools.map(t => t.name)); await input.call('getRevenueMetrics', { range: 'last7' }); return { text: 'ok', toolsUsed: ['getRevenueMetrics'] }; },
   });
   const ds = dataset({ metrics: [metric(iso(1), 100, 1)] });
-  const answer = await agent.chat({ dataset: ds, question: 'How is revenue?', language: 'en' });
-  assert.equal(answer, 'ok');
+  const result = await agent.chat({ dataset: ds, question: 'How is revenue?', language: 'en' });
+  assert.equal(result.answer, 'ok');
+  assert.deepEqual(result.toolsUsed, ['getRevenueMetrics']);
   assert.ok(calledTools.includes('getRevenueMetrics'));
 });
 
-test('ExecutiveAgent.chat falls back to generate() with a bounded overview when the provider has no tool support', async () => {
+test('ExecutiveAgent.chat falls back to generate() with a bounded overview (and no tools used) when the provider has no tool support', async () => {
   let seenContext = '';
   const agent = new ExecutiveAgent({ generate: async input => { seenContext = input.context; return 'fallback answer'; } });
   const ds = dataset({ businessName: 'iNatural', metrics: [metric(iso(1), 100, 1)] });
-  const answer = await agent.chat({ dataset: ds, question: 'How is revenue?', language: 'en' });
-  assert.equal(answer, 'fallback answer');
+  const result = await agent.chat({ dataset: ds, question: 'How is revenue?', language: 'en' });
+  assert.equal(result.answer, 'fallback answer');
+  assert.deepEqual(result.toolsUsed, []);
   assert.equal(JSON.parse(seenContext).businessName, 'iNatural');
 });
 
@@ -125,11 +127,11 @@ test('ExecutiveAgent.brief requires a tool-capable provider and validates the st
   const noTools = new ExecutiveAgent({ generate: async () => 'x' });
   await assert.rejects(() => noTools.brief({ dataset: dataset(), days: 7, language: 'en' }), /AI_TOOLS_NOT_CONFIGURED/);
 
-  const brokenJson = new ExecutiveAgent({ generate: async () => 'x', converse: async () => 'not json' });
+  const brokenJson = new ExecutiveAgent({ generate: async () => 'x', converse: async () => ({ text: 'not json', toolsUsed: [] }) });
   await assert.rejects(() => brokenJson.brief({ dataset: dataset(), days: 7, language: 'en' }), /AI_INVALID_JSON/);
 
   const valid = { summary: 's', wins: [], problems: [], opportunities: [], recommendedActions: [], confidence: 0.5, dataFreshness: 'synced 8 minutes ago' };
-  const goodProvider = new ExecutiveAgent({ generate: async () => 'x', converse: async () => JSON.stringify(valid) });
+  const goodProvider = new ExecutiveAgent({ generate: async () => 'x', converse: async () => ({ text: JSON.stringify(valid), toolsUsed: ['getBusinessOverview'] }) });
   const brief = await goodProvider.brief({ dataset: dataset(), days: 7, language: 'en' });
   assert.deepEqual(executiveBriefSchema.parse(brief), valid);
 });

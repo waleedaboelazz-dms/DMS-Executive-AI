@@ -19,14 +19,16 @@ export class OpenAiProvider implements AiProvider {
       ...input.history.flatMap(h => [{ role: 'user', content: h.question }, { role: 'assistant', content: h.answer }]),
       { role: 'user', content: input.question },
     ];
+    const toolsUsed = new Set<string>();
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const response = await oa.responses.create({ model, store: false, instructions: input.instructions, max_output_tokens: 1800, tools, input: conversation as never },{signal:input.signal});
       const calls = response.output.filter((item): item is Extract<typeof response.output[number], { type: 'function_call' }> => item.type === 'function_call');
       if (!calls.length) {
         if (!response.output_text) throw new HttpError(502, 'AI returned no text. Try again.');
-        return response.output_text;
+        return { text: response.output_text, toolsUsed: [...toolsUsed] };
       }
       const outputs = await Promise.all(calls.map(async call => {
+        toolsUsed.add(call.name);
         let args: Record<string, unknown> = {};
         try { args = call.arguments ? JSON.parse(call.arguments) : {}; } catch { args = {}; }
         const result = await input.call(call.name, args);

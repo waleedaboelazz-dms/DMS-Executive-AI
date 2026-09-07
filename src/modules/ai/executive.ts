@@ -21,14 +21,16 @@ export class ExecutiveAgent {
   }
 
   // Tool-calling chat: the model queries pre-authorized business tools instead of receiving raw rows.
-  async chat(input: { dataset: ToolDataset; question: string; language: 'ar' | 'en'; history?: { question: string; answer: string }[]; signal?:AbortSignal }) {
+  async chat(input: { dataset: ToolDataset; question: string; language: 'ar' | 'en'; history?: { question: string; answer: string }[]; signal?:AbortSignal }): Promise<{ answer: string; toolsUsed: string[] }> {
     const instructions = AI_RULES(input.language) + (input.language === 'ar' ? ' أجب في حدود 350 كلمة.' : ' Keep answers under 350 words.');
     const history = (input.history ?? []).slice(-6);
     if (this.provider.converse) {
-      return this.provider.converse({ instructions, question: input.question, history, tools: toolSpecs, call: async (name, args) => executeTool(input.dataset, name, args), signal: input.signal });
+      const { text, toolsUsed } = await this.provider.converse({ instructions, question: input.question, history, tools: toolSpecs, call: async (name, args) => executeTool(input.dataset, name, args), signal: input.signal });
+      return { answer: text, toolsUsed };
     }
     // Fallback for providers without tool support: a bounded overview snapshot instead of the full dataset.
-    return this.provider.generate({ instructions, context: JSON.stringify(getBusinessOverview(input.dataset)), question: input.question, history, signal: input.signal });
+    const answer = await this.provider.generate({ instructions, context: JSON.stringify(getBusinessOverview(input.dataset)), question: input.question, history, signal: input.signal });
+    return { answer, toolsUsed: [] };
   }
 
   async brief(input: { dataset: ToolDataset; days: number; language: 'ar' | 'en'; signal?:AbortSignal }): Promise<ExecutiveBrief> {
@@ -37,9 +39,9 @@ export class ExecutiveAgent {
       ? `أعد النتيجة بصيغة JSON صالحة فقط بدون أي نص إضافي، بالمخطط التالي: {"summary":نص,"wins":[نصوص],"problems":[نصوص],"opportunities":[نصوص],"recommendedActions":[نصوص],"confidence":رقم بين 0 و1,"dataFreshness":نص يصف زمن آخر مزامنة}.`
       : `Return ONLY valid JSON, no other text, matching this schema: {"summary":string,"wins":string[],"problems":string[],"opportunities":string[],"recommendedActions":string[],"confidence":number between 0 and 1,"dataFreshness":string describing when the underlying data was last synced}.`;
     const question = input.language === 'ar' ? `أنشئ الملخص التنفيذي لآخر ${input.days} يوم باستخدام الأدوات فقط.` : `Generate the executive brief for the last ${input.days} days using tools only.`;
-    const raw = await this.provider.converse({ instructions: AI_RULES(input.language) + ' ' + schemaNote, question, history: [], tools: toolSpecs, call: async (name, args) => executeTool(input.dataset, name, args), signal: input.signal });
+    const { text } = await this.provider.converse({ instructions: AI_RULES(input.language) + ' ' + schemaNote, question, history: [], tools: toolSpecs, call: async (name, args) => executeTool(input.dataset, name, args), signal: input.signal });
     let parsed: unknown;
-    try { parsed = JSON.parse(raw); } catch { throw new Error('AI_INVALID_JSON'); }
+    try { parsed = JSON.parse(text); } catch { throw new Error('AI_INVALID_JSON'); }
     return executiveBriefSchema.parse(parsed);
   }
 }
